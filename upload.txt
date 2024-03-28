@@ -1,0 +1,239 @@
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+if (isset($_POST['submit'])) {
+    // Database connection details
+    $dbHost = 'localhost';
+    $dbName = 'paymentdetails';
+    $dbUser = 'root';
+    $dbPassword = '';
+    
+    // Connect to the database
+    $conn = new mysqli($dbHost, $dbUser, $dbPassword, $dbName);
+    if ($conn->connect_error) {
+        die('Connection failed: ' . $conn->connect_error);
+    }
+    
+    // File upload handling
+    if ($_FILES['file']['error'] === UPLOAD_ERR_OK) {
+        $uploadedFile = $_FILES['file']['tmp_name'];
+        // Load the uploaded CSV file
+        try {
+
+            $spreadsheet = IOFactory::load($uploadedFile);
+            // Rest of the code
+        } catch (Exception $e) {
+            echo 'Error loading file: ',  $e->getMessage(), "\n";
+        }
+        
+        // $spreadsheet = IOFactory::load($uploadedFile);
+
+        // Select the first worksheet
+        $worksheet = $spreadsheet->getActiveSheet();
+
+        // Get the highest column and row numbers referenced in the worksheet
+        $lastColumn = $worksheet->getHighestColumn();
+        $highestColumn = Coordinate::columnIndexFromString($lastColumn);
+        $highestRow = $worksheet->getHighestRow();
+
+        // Assuming the first row contains column names
+        $columns = [];
+        for ($col = 1; $col <= $highestColumn; ++$col) {
+            $columns[] = $worksheet->getCellByColumnAndRow($col, 1)->getValue();
+        }
+
+        // Loop through each row of the worksheet starting from row 2 (assuming row 1 has column names)
+        for ($row = 1; $row <= $highestRow; ++$row) {
+            if ($row === 1) {
+                continue;
+            }
+            // Prepare data
+            $data = [];
+            for ($col = 1; $col <= $highestColumn; ++$col) {
+                $data[$columns[$col - 1]] = $worksheet->getCellByColumnAndRow($col, $row)->getValue();
+            }
+
+            // Create SQL query
+            $sql = "INSERT INTO studentdetails(";
+            $sql .= join(', ', array_map(function ($column) {
+                return "`$column`"; // Use backticks to ensure correct escaping of column names
+            }, $columns)) . ") VALUES (";
+            $sql .= join(', ', array_map(function ($value) use ($conn) {
+                return "'" . $conn->real_escape_string($value) . "'";
+            }, array_values($data))) . ")";
+            // Execute the query
+        if ($conn->query($sql) === TRUE) {
+            $success_message =  "Data inserted successfully";
+            header("Location: file.html#?success_message=" . urlencode($success_message));
+        } else {
+            echo "Error: " . $conn->error . "\n";
+        }
+            
+        }
+        
+        // Close the database connection
+        $conn->close();
+    } else {
+        echo "File upload failed with error code: " . $_FILES['file']['error'];
+    }
+}
+
+?>
+
+
+<?php
+    // Enable error reporting for debugging
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+
+    // Require the database configuration file
+    require 'config.php';
+
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Fetch values from the submitted form
+    $TuitionFee = $_POST['TuitionFee'];
+    $SpecialFee = $_POST["SpecialFee"];
+    $UCSFees = $_POST["UCSFees"];
+    $yearSelection = $_POST["yearSelection"];
+
+    try {
+        // Retrieve the existing fee details for the previous year
+        $previousYear = $yearSelection - 1; // Assuming the years are consecutive
+        $selectPreviousYearSQL = "SELECT * FROM studentdetails WHERE `Year` = '$previousYear'";
+        $result = $conn->query($selectPreviousYearSQL);
+
+        // Fetch previous year's fee details
+        $previousFees = [];
+        if ($result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            $previousFees['Tution_fee'] = $row['Tution_fee'];
+            $previousFees['Special_fee'] = $row['Special_fee'];
+            $previousFees['UCS_fee'] = $row['UCS_fee'];
+        }
+
+        // Prepare and execute the SQL query to update fee details for the selected year
+        $sql = "UPDATE studentdetails 
+                SET `Tution_fee` = '$TuitionFee', 
+                    `Special_fee` = '$SpecialFee', 
+                    `UCS_fee` = '$UCSFees'
+                WHERE `Year` = '$yearSelection'";
+
+        // Execute the SQL query and handle success or error
+        if ($conn->query($sql) === TRUE) {
+            // On successful update, redirect with success message
+            $success_message = "Fees updated successfully for year $yearSelection";
+            header("Location: ../file.html#?success_message=" . urlencode($success_message));
+        } else {
+            // Display error message if the query fails
+            echo "Error: " . $sql . "<br>" . $conn->error;
+        }
+    } catch (Exception $e) {
+        // Handle exceptions, redirect with error message
+        $privio = "An error occurred while updating records";
+        header("Location: ../file.html#?privio=" . urlencode($privio));
+    }
+
+    // Close the database connection
+    $conn->close();
+}
+
+    // Check if the form is submitted via POST method
+    // if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    //     // Fetch values from the submitted form
+    //     $AdmissionFee = $_POST["AdmissionFee"];
+    //     $TuitionFee = $_POST['TuitionFee'];
+    //     $SpecialFee = $_POST["SpecialFee"];
+    //     $UCSFees = $_POST["UCSFees"];
+    //     $yearSelection = $_POST["yearSelection"];
+
+    //     try {
+    //         // Prepare and execute the SQL query to update fee details for a specific year
+    //         $sql = "UPDATE studentdetails 
+    //                 SET `Admission_Fees` = '$AdmissionFee', 
+    //                     `Tution_fee` = '$TuitionFee', 
+    //                     `Special_fee` = '$SpecialFee', 
+    //                     `UCS_fee` = '$UCSFees'
+    //                 WHERE `Year` = '$yearSelection'";
+
+    //         // Execute the SQL query and handle success or error
+    //         if ($conn->query($sql) === TRUE) {
+    //             // On successful update, redirect with success message
+    //             $success_message = "Fees updated successfully for year $yearSelection";
+    //             header("Location: ../file.html#?success_message=" . urlencode($success_message));
+    //         } else {
+    //             // Display error message if the query fails
+    //             echo "Error: " . $sql . "<br>" . $conn->error;
+    //         }
+    //     } catch (Exception $e) {
+    //         // Handle exceptions, redirect with error message
+    //         $privio = "An error occurred while updating records";
+    //         header("Location: ../file.html#?privio=" . urlencode($privio));
+    //     }
+
+    //     // Close the database connection
+    //     $conn->close();
+    // }
+?>
+<?php
+// Assuming you have a database connection
+require 'config.php';
+
+
+// Check database connection
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+// Get current date and time
+date_default_timezone_set('Asia/Kolkata');
+$date = date("Y-m-d H:i:s"); // Current date
+
+// Collect form data
+$admission_number = $_POST['admission_number'];
+$name = $_POST['name'];
+$amount_paid = $_POST['amount_paid'];
+$utr_number = $_POST['utr_number'];
+$feetype = $_POST['fees_type'];
+$dateofpayment = $_POST['datepaid'];
+
+// SQL query to insert payment details into payment_logs table
+$sql_insert = "INSERT INTO payment_logs (Date, Admission_Number, Name, Fees_Type, Amount_paid,  Date_of_payment , UTR_Number) VALUES
+               ('$date', '$admission_number','$name','$feetype','$amount_paid' , '$dateofpayment' , '$utr_number')";
+
+// SQL query to update the corresponding fee column in studentdetails table
+$sql_update = "UPDATE studentdetails 
+               SET " . getColumnName($feetype) . " = " . getColumnName($feetype) . " - $amount_paid
+               WHERE Admission_Number = '$admission_number'";
+
+// Function to map fee type to column name in studentdetails table
+function getColumnName($feetype) {
+    // Define the mapping of fee type to column name
+    $feeColumnMap = [
+        'Tution_Fees' => 'Tution_fee',
+        'Special_Fees' => 'Special_fee',
+        'UCS_Fees' => 'UCS_fee',
+        // Add more fee types as needed
+    ];
+
+    // Return the column name based on fee type
+    return $feeColumnMap[$feetype];
+}
+
+// Execute both queries and handle success or failure
+if ($conn->query($sql_insert) === TRUE && $conn->query($sql_update) === TRUE) {
+    // On success, redirect with success message
+    $msg = "Record updated successfully";
+    header("Location: ../admin_links.html#?msg=" . urlencode($msg));
+} else {
+    // Display error messages if queries fail
+    echo "Error: " . $sql_insert . "<br>" . $conn->error;
+    echo "Error: " . $sql_update . "<br>" . $conn->error;
+}
+
+// Close the database connection
+$conn->close();
+?>
